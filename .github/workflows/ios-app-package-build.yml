@@ -155,7 +155,7 @@ jobs:
             hosts/web/target
             target/operit-build-tools
           key: ${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN_VERSION }}-cargo-ios-${{ hashFiles('core/Cargo.lock', 'core/crates/**/Cargo.toml', 'apps/flutter/native/operit-flutter-bridge/Cargo.lock', 'apps/flutter/native/operit-flutter-bridge/Cargo.toml', 'hosts/apple/Cargo.lock', 'hosts/apple/Cargo.toml', 'hosts/web/Cargo.lock', 'hosts/web/Cargo.toml') }}
-      
+
       - name: Patch deployment target to 16.0
         run: |
           set -x
@@ -167,14 +167,16 @@ jobs:
           grep -n 'DEPLOYMENT_TARGET' "$P"
           head -3 apps/flutter/app/ios/Podfile
 
-      - name: Prepare TypeScript toolchain
+      - name: Prepare build toolchain (tsc + toolpkg deps)
         run: |
           set -x
           npm install --prefix .ci-tools/typescript --no-audit --no-fund typescript@5.9.3
           ls -l .ci-tools/typescript/node_modules/.bin/tsc
           .ci-tools/typescript/node_modules/.bin/tsc --version
-          (cd plugins/packages/buildin/workflow && corepack pnpm install --frozen-lockfile) || echo "pnpm install skipped"    
-          
+          npm install --no-audit --no-fund --no-save esbuild fflate typescript@5.9.3
+          ls -d node_modules/esbuild node_modules/fflate node_modules/typescript
+          (cd plugins/packages/buildin/workflow && corepack pnpm install --frozen-lockfile) || echo "pnpm install skipped"
+
       - name: Build and package unsigned iOS app
         run: python3 tools/build_scripts/build_flutter_ios.py
 
