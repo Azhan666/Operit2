@@ -166,6 +166,10 @@ jobs:
           echo '--- verify ---'
           grep -n 'DEPLOYMENT_TARGET' "$P"
           head -3 apps/flutter/app/ios/Podfile
+          echo '--- disable in-process V8 (iOS cannot reserve the V8 sandbox cage) ---'
+          sed -i '' 's#operit-runtime = { path = "../../../../core/crates/runtime/application", default-features = false, features = \["javascript"\] }#operit-runtime = { path = "../../../../core/crates/runtime/application", default-features = false }#' apps/flutter/native/operit-flutter-bridge/Cargo.toml
+          grep -n 'operit-runtime' apps/flutter/native/operit-flutter-bridge/Cargo.toml
+          if grep -q 'features = \["javascript"\]' apps/flutter/native/operit-flutter-bridge/Cargo.toml; then echo 'WARN: javascript feature STILL enabled'; else echo 'OK: javascript feature removed'; fi
 
       - name: Prepare build toolchain (tsc + toolpkg deps)
         run: |
