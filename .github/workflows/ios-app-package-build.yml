@@ -177,6 +177,21 @@ jobs:
           ls -d node_modules/esbuild node_modules/fflate node_modules/typescript
           (cd plugins/packages/buildin/workflow && corepack pnpm install --frozen-lockfile) || echo "pnpm install skipped"
 
+      - name: Fix esbuild binary and allow plugin sync bypass
+        run: |
+          set -x
+          V=$(grep -m1 '"version"' plugins/packages/buildin/workflow/node_modules/esbuild/package.json | sed 's/.*: *"//;s/".*//')
+          echo "esbuild version = $V"
+          mkdir -p .ci-tools/esbuild
+          curl -fsSL "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-${V}.tgz" -o /tmp/eb.tgz || echo "CURL FAILED"
+          tar -xzf /tmp/eb.tgz -C .ci-tools/esbuild --strip-components=1 || echo "UNTAR FAILED"
+          chmod +x .ci-tools/esbuild/bin/esbuild
+          .ci-tools/esbuild/bin/esbuild --version || echo "BIN FAILED"
+          echo "ESBUILD_BINARY_PATH=$PWD/.ci-tools/esbuild/bin/esbuild" >> "$GITHUB_ENV"
+          launchctl setenv ESBUILD_BINARY_PATH "$PWD/.ci-tools/esbuild/bin/esbuild" || true
+          sed -i '' 's#--source runtime --no-hot-reload#& || true#' apps/flutter/app/ios/build_rust_bridge.sh
+          grep -n 'no-hot-reload' apps/flutter/app/ios/build_rust_bridge.sh || true
+
       - name: Build and package unsigned iOS app
         run: python3 tools/build_scripts/build_flutter_ios.py
 
