@@ -191,6 +191,10 @@ jobs:
           launchctl setenv ESBUILD_BINARY_PATH "$PWD/.ci-tools/esbuild/bin/esbuild" || true
           sed -i '' 's#--source runtime --no-hot-reload#& || true#' apps/flutter/app/ios/build_rust_bridge.sh
           grep -n 'no-hot-reload' apps/flutter/app/ios/build_rust_bridge.sh || true
+          corepack enable || echo "corepack enable failed"
+          pnpm --version || echo "PNPM STILL MISSING"
+          sed -i '' 's#pnpm run build:web#node web/scripts/build.mjs#' plugins/packages/buildin/workflow/package.json
+          grep -n 'pack:toolpkg' plugins/packages/buildin/workflow/package.json || true
 
       - name: Build and package unsigned iOS app
         run: python3 tools/build_scripts/build_flutter_ios.py
