@@ -155,7 +155,18 @@ jobs:
             hosts/web/target
             target/operit-build-tools
           key: ${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN_VERSION }}-cargo-ios-${{ hashFiles('core/Cargo.lock', 'core/crates/**/Cargo.toml', 'apps/flutter/native/operit-flutter-bridge/Cargo.lock', 'apps/flutter/native/operit-flutter-bridge/Cargo.toml', 'hosts/apple/Cargo.lock', 'hosts/apple/Cargo.toml', 'hosts/web/Cargo.lock', 'hosts/web/Cargo.toml') }}
-
+      
+      - name: Patch deployment target to 16.0
+        run: |
+          set -x
+          P=apps/flutter/app/ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = 16\.4;/IPHONEOS_DEPLOYMENT_TARGET = 16.0;/g' "$P"
+          sed -i '' "s/platform :ios, '16\.4'/platform :ios, '16.0'/" apps/flutter/app/ios/Podfile
+          sed -i '' "s/= '16\.4'/= '16.0'/" apps/flutter/app/ios/Podfile
+          echo '--- verify ---'
+          grep -n 'DEPLOYMENT_TARGET' "$P"
+          head -3 apps/flutter/app/ios/Podfile
+          
       - name: Build and package unsigned iOS app
         run: python3 tools/build_scripts/build_flutter_ios.py
 
