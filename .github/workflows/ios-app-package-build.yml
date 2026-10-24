@@ -166,6 +166,14 @@ jobs:
           echo '--- verify ---'
           grep -n 'DEPLOYMENT_TARGET' "$P"
           head -3 apps/flutter/app/ios/Podfile
+
+      - name: Prepare TypeScript toolchain
+        run: |
+          set -x
+          npm install --prefix .ci-tools/typescript --no-audit --no-fund typescript@5.9.3
+          ls -l .ci-tools/typescript/node_modules/.bin/tsc
+          .ci-tools/typescript/node_modules/.bin/tsc --version
+          (cd plugins/packages/buildin/workflow && corepack pnpm install --frozen-lockfile) || echo "pnpm install skipped"    
           
       - name: Build and package unsigned iOS app
         run: python3 tools/build_scripts/build_flutter_ios.py
