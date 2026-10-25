@@ -376,17 +376,43 @@ jobs:
       - name: Build V8 from source for iOS (cppgc caged heap disabled)
         env:
           V8_FROM_SOURCE: "1"
-          GN_ARGS: "cppgc_enable_caged_heap=false cppgc_enable_young_generation=false"
+          GN_ARGS: "cppgc_enable_caged_heap=false cppgc_enable_young_generation=false v8_enable_i18n_support=false"
         run: |
           set -x
-          set -o pipefail
+          set +e
           df -h /
           cd hosts/common/operit-host-native-scheduler
           cargo build --release --target aarch64-apple-ios 2>&1 | tee /tmp/v8-build.log | tail -n 200
+          rc=${PIPESTATUS[0]}
+          echo "=== first attempt rc=$rc ==="
+          if [ "$rc" -ne 0 ]; then
+            echo '--- ICU data fallback: locate generated icudtl.dat ---'
+            ICU=$(ls -d "$HOME"/.cargo/registry/src/*/v8-*/third_party/icu 2>/dev/null | head -1)
+            echo "ICU dir = $ICU"
+            ls -la "$ICU" 2>/dev/null | head -30
+            if [ -n "$ICU" ] && [ ! -f "$ICU/ios/icudtl.dat" ]; then
+              mkdir -p "$ICU/ios"
+              for cand in "$ICU/common/icudtl.dat" "$ICU/android/icudtl.dat" "$ICU/icudtl.dat" "$ICU/common/icudtl.dat.orig"; do
+                if [ -f "$cand" ]; then
+                  cp -f "$cand" "$ICU/ios/icudtl.dat"
+                  echo "copied $cand -> $ICU/ios/icudtl.dat"
+                  break
+                fi
+              done
+            fi
+            ls -la "$ICU/ios" 2>/dev/null
+            if [ -f "$ICU/ios/icudtl.dat" ]; then
+              echo '--- retry build after ICU patch ---'
+              cargo build --release --target aarch64-apple-ios 2>&1 | tee /tmp/v8-build2.log | tail -n 200
+              rc=${PIPESTATUS[0]}
+              echo "=== retry rc=$rc ==="
+            fi
+          fi
           df -h /
           echo '--- gn args echo from log ---'
-          grep -iE 'gn |GN_ARGS|cppgc|is_debug|target_cpu' /tmp/v8-build.log | tail -n 30 || true
-          ls -la target/aarch64-apple-ios/release/ | head -20
+          grep -iE 'gn |GN_ARGS|cppgc|i18n|is_debug|target_cpu' /tmp/v8-build.log | tail -n 40 || true
+          ls -la target/aarch64-apple-ios/release/ 2>/dev/null | head -20
+          exit "$rc"
 
       - name: Build and package unsigned iOS app
         run: python3 tools/build_scripts/build_flutter_ios.py
