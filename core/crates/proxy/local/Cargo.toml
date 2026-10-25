@@ -18,7 +18,7 @@ operit-model = { path = "../../foundation/model" }
 operit-plugin-sdk = { path = "../../plugin/sdk" }
 operit-plugin-sdk-ipc = { path = "../../plugin/sdk-ipc" }
 operit-providers = { path = "../../provider/services" }
-operit-runtime = { path = "../../runtime/application", default-features = false, features = ["javascript"] }
+operit-runtime = { path = "../../runtime/application", default-features = false }
 operit-store = { path = "../../persistence/store" }
 operit-plugin-theme = { path = "../../plugin/theme" }
 operit-tools = { path = "../../tool/services", default-features = false }
