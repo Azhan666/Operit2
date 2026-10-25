@@ -126,7 +126,7 @@ jobs:
           # Take the whole Rust source tree from upstream so that all crates
           # (javascript-bridge, plugin/sdk, proxy/local, ...) stay version-
           # consistent. .github/ is deliberately left untouched.
-          git checkout upstream/main -- core apps hosts tools
+          git checkout upstream/main -- . ':(exclude).github'
           echo '--- verify: iOS bypass gone? ---'
           if grep -rq 'JavaScript runtime unavailable on iOS in this build' core/ 2>/dev/null; then echo 'FATAL: iOS bypass still present'; exit 1; else echo 'OK: no iOS bypass'; fi
           echo '--- verify: js bridge / sdk signatures match? ---'
@@ -366,7 +366,6 @@ jobs:
           .ci-tools/esbuild/bin/esbuild --version || echo "BIN FAILED"
           echo "ESBUILD_BINARY_PATH=$PWD/.ci-tools/esbuild/bin/esbuild" >> "$GITHUB_ENV"
           launchctl setenv ESBUILD_BINARY_PATH "$PWD/.ci-tools/esbuild/bin/esbuild" || true
-          sed -i '' 's#--source runtime --no-hot-reload#& || true#' apps/flutter/app/ios/build_rust_bridge.sh
           grep -n 'no-hot-reload' apps/flutter/app/ios/build_rust_bridge.sh || true
           corepack enable || echo "corepack enable failed"
           pnpm --version || echo "PNPM STILL MISSING"
@@ -438,6 +437,16 @@ jobs:
           done
           echo "FATAL: cannot fetch sherpa archive from any source"
           exit 1
+          
+      - name: Sync builtin plugin assets (must match plugin sources)
+        run: |
+          set -x
+          echo "ESBUILD_BINARY_PATH=$ESBUILD_BINARY_PATH"
+          ls -l "$ESBUILD_BINARY_PATH"
+          .ci-tools/typescript/node_modules/.bin/tsc --version
+          python3 plugins/tools/sync_plugin_packages.py --source runtime --no-hot-reload
+          echo '--- verify generated assets ---'
+          ls core/crates/runtime/application/assets/plugins/buildin
       
       - name: Build V8 from source for iOS (no caged heap, no temporal)
         env:
