@@ -123,15 +123,29 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
           git remote add upstream https://github.com/AAswordman/Operit2.git 2>/dev/null || true
           git fetch --depth 1 upstream main
-          # Take the whole Rust source tree from upstream so that all crates
-          # (javascript-bridge, plugin/sdk, proxy/local, ...) stay version-
-          # consistent. .github/ is deliberately left untouched.
-          git checkout upstream/main -- . ':(exclude).github'
+
+          # Preserve our own workflow file across the hard reset.
+          cp -f .github/workflows/ios-app-package-build.yml /tmp/wf_backup.yml || true
+
+          # Hard reset so tracked files exactly match upstream (this also removes
+          # files that upstream deleted), then drop stale untracked leftovers.
+          git reset --hard upstream/main
+          git clean -fd plugins core hosts tools
+
+          if [ -f /tmp/wf_backup.yml ]; then
+            cp -f /tmp/wf_backup.yml .github/workflows/ios-app-package-build.yml
+          fi
+
           echo '--- verify: iOS bypass gone? ---'
           if grep -rq 'JavaScript runtime unavailable on iOS in this build' core/ 2>/dev/null; then echo 'FATAL: iOS bypass still present'; exit 1; else echo 'OK: no iOS bypass'; fi
-          echo '--- verify: js bridge / sdk signatures match? ---'
-          grep -n 'fn write_environment_variable' core/crates/plugin/sdk/src/javascript.rs || true
-          git status --porcelain | head -20
+
+          echo '--- verify: character_cards sources are clean ---'
+          ls plugins/packages/buildin/character_cards/src | head -30
+          grep -rn 'assertCard' plugins/packages/buildin/character_cards/src/validation* 2>/dev/null | head -5 || true
+
+          echo '--- verify: our artifacts survived the clean ---'
+          ls -l apps/flutter/app/ios/Runner/ish-root.tar.gz apps/flutter/app/apple/downloads/*.tar.bz2 2>/dev/null || true
+          git status --porcelain | head -10
 
       - name: Add iOS Rust target
         run: rustup target add aarch64-apple-ios
