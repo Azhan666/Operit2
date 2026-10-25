@@ -48,7 +48,7 @@ jobs:
   package-ios:
     needs: build-ish-rootfs
     runs-on: macos-15
-    timeout-minutes: 300
+    timeout-minutes: 350
     env:
       RUSTFLAGS: -Awarnings
       RUST_TOOLCHAIN_VERSION: 1.95.0
@@ -373,6 +373,72 @@ jobs:
           sed -i '' 's#pnpm run build:web#node web/scripts/build.mjs#' plugins/packages/buildin/workflow/package.json
           grep -n 'pack:toolpkg' plugins/packages/buildin/workflow/package.json || true
 
+      - name: Cache Apple Sherpa archive
+        uses: actions/cache@v4
+        with:
+          path: apps/flutter/app/apple/downloads
+          key: sherpa-ios-v1.13.2-2886a04df4f8d5066c6c8b6e712278d65d7b60fc9e45990223df50262861d38b
+
+      - name: Pre-download Apple Sherpa archive (mirror resilient)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          D=apps/flutter/app/apple/downloads
+          OUT="$D/sherpa-onnx-v1.13.2-ios.tar.bz2"
+          WANT_SHA=2886a04df4f8d5066c6c8b6e712278d65d7b60fc9e45990223df50262861d38b
+          WANT_SIZE=77611169
+          mkdir -p "$D"
+          if [ -f "$OUT" ]; then
+            got_size=$(wc -c < "$OUT" | tr -d ' ')
+            got_sha=$(shasum -a 256 "$OUT" | awk '{print $1}')
+            if [ "$got_size" = "$WANT_SIZE" ] && [ "$got_sha" = "$WANT_SHA" ]; then
+              echo "OK: sherpa archive already present and verified"
+              exit 0
+            fi
+            echo "bad cached sherpa archive, re-downloading"
+            rm -f "$OUT"
+          fi
+          REL=k2-fsa/sherpa-onnx/releases/download/v1.13.2/sherpa-onnx-v1.13.2-ios.tar.bz2
+          urls="
+          https://ghfast.top/https://github.com/$REL
+          https://gh-proxy.com/https://github.com/$REL
+          https://ghproxy.net/https://github.com/$REL
+          https://github.com/$REL
+          "
+          for u in $urls; do
+            case "$u" in
+              *ghfast.top*|*gh-proxy.com*|*ghproxy.net*) AUTH="" ;;
+              *) AUTH="Authorization: Bearer ${GITHUB_TOKEN:-}" ;;
+            esac
+            for i in 1 2 3; do
+              echo "== fetch sherpa via $u (attempt $i)"
+              rm -f "$OUT.part"
+              if [ -n "$AUTH" ]; then
+                curl -fL --http1.1 --retry 3 --retry-all-errors --retry-delay 5 \
+                  --connect-timeout 20 --max-time 900 -A operit-ci \
+                  -H "$AUTH" -o "$OUT.part" "$u" && rc=0 || rc=1
+              else
+                curl -fL --http1.1 --retry 3 --retry-all-errors --retry-delay 5 \
+                  --connect-timeout 20 --max-time 900 -A operit-ci \
+                  -o "$OUT.part" "$u" && rc=0 || rc=1
+              fi
+              if [ "$rc" -eq 0 ] && [ -f "$OUT.part" ]; then
+                got_size=$(wc -c < "$OUT.part" | tr -d ' ')
+                got_sha=$(shasum -a 256 "$OUT.part" | awk '{print $1}')
+                if [ "$got_size" = "$WANT_SIZE" ] && [ "$got_sha" = "$WANT_SHA" ]; then
+                  mv "$OUT.part" "$OUT"
+                  echo "OK: sherpa archive verified via $u"
+                  exit 0
+                fi
+                echo "-- size/sha mismatch from $u (size=$got_size)"
+              fi
+              sleep $((i * 5))
+            done
+          done
+          echo "FATAL: cannot fetch sherpa archive from any source"
+          exit 1
+      
       - name: Build V8 from source for iOS (no caged heap, no temporal)
         env:
           V8_FROM_SOURCE: "1"
