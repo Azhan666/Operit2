@@ -392,20 +392,25 @@ jobs:
           echo '--- icu data bundles shipped inside the crate ---'
           ls -l "$ICU"/*/icudtl.dat 2>/dev/null
 
-          # The crate has no third_party/icu/ios/icudtl.dat (that file normally
-          # comes from a gclient/CIPD checkout). Seed it from a data bundle that
-          # IS shipped with the crate; V8 only needs a valid ICU data blob here.
-          if [ -d "$ICU" ] && [ ! -f "$ICU/ios/icudtl.dat" ]; then
-            mkdir -p "$ICU/ios"
-            for cand in "$ICU/chromecast_video/icudtl.dat" "$ICU/flutter_desktop/icudtl.dat"; do
-              if [ -f "$cand" ]; then
-                cp -f "$cand" "$ICU/ios/icudtl.dat"
-                echo "seeded ios/icudtl.dat from $cand"
-                break
+          # The crate ships no per-platform icudtl.dat for the dirs that V8's
+          # BUILD.gn expects (those normally come from a gclient/CIPD checkout).
+          # Seed every candidate data_dir from a bundle that IS shipped, so it
+          # does not matter which branch of third_party/icu/BUILD.gn is taken.
+          SRC_DAT=""
+          for cand in "$ICU/chromecast_video/icudtl.dat" "$ICU/flutter_desktop/icudtl.dat"; do
+            if [ -f "$cand" ]; then SRC_DAT="$cand"; break; fi
+          done
+          echo "ICU source dat = $SRC_DAT"
+          if [ -n "$SRC_DAT" ]; then
+            for d in ios common flutter flutter_desktop android chromeos; do
+              mkdir -p "$ICU/$d"
+              if [ ! -f "$ICU/$d/icudtl.dat" ]; then
+                cp -f "$SRC_DAT" "$ICU/$d/icudtl.dat"
+                echo "seeded $d/icudtl.dat"
               fi
             done
           fi
-          ls -l "$ICU/ios" 2>/dev/null
+          ls -l "$ICU"/*/icudtl.dat 2>/dev/null
 
           echo '--- rust vendor crates (must stay unused: temporal is off) ---'
           ls "$V8DIR/third_party/rust/chromium_crates_io/vendor" 2>/dev/null | wc -l
