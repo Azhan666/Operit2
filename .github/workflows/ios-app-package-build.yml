@@ -123,16 +123,15 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
           git remote add upstream https://github.com/AAswordman/Operit2.git 2>/dev/null || true
           git fetch --depth 1 upstream main
-          git checkout upstream/main -- \
-            core/crates/plugin/javascript-bridge/src/javascript/JsEngine.rs \
-            apps/flutter/native/operit-flutter-bridge/Cargo.toml \
-            core/crates/application/core/Cargo.toml \
-            core/crates/proxy/local/Cargo.toml \
-            core/crates/command/core/Cargo.toml
+          # Take the whole Rust source tree from upstream so that all crates
+          # (javascript-bridge, plugin/sdk, proxy/local, ...) stay version-
+          # consistent. .github/ is deliberately left untouched.
+          git checkout upstream/main -- core apps hosts tools
           echo '--- verify: iOS bypass gone? ---'
           if grep -rq 'JavaScript runtime unavailable on iOS in this build' core/ 2>/dev/null; then echo 'FATAL: iOS bypass still present'; exit 1; else echo 'OK: no iOS bypass'; fi
-          echo '--- verify: javascript feature restored? ---'
-          grep -rn 'operit-runtime' apps/flutter/native/operit-flutter-bridge/Cargo.toml core/crates/application/core/Cargo.toml core/crates/proxy/local/Cargo.toml core/crates/command/core/Cargo.toml || true
+          echo '--- verify: js bridge / sdk signatures match? ---'
+          grep -n 'fn write_environment_variable' core/crates/plugin/sdk/src/javascript.rs || true
+          git status --porcelain | head -20
 
       - name: Add iOS Rust target
         run: rustup target add aarch64-apple-ios
@@ -330,6 +329,7 @@ jobs:
             apps/flutter/native/operit-flutter-bridge/target
             hosts/apple/target
             hosts/web/target
+            hosts/common/operit-host-native-scheduler/target
             target/operit-build-tools
           key: ${{ runner.os }}-rust-${{ env.RUST_TOOLCHAIN_VERSION }}-cargo-ios-${{ hashFiles('core/Cargo.lock', 'core/crates/**/Cargo.toml', 'apps/flutter/native/operit-flutter-bridge/Cargo.lock', 'apps/flutter/native/operit-flutter-bridge/Cargo.toml', 'hosts/apple/Cargo.lock', 'hosts/apple/Cargo.toml', 'hosts/web/Cargo.lock', 'hosts/web/Cargo.toml') }}
 
