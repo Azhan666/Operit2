@@ -129,6 +129,75 @@ jobs:
           path: apps/flutter/app/apple/ish-build/Release-iphoneos
           key: ${{ runner.os }}-${{ runner.arch }}-ish-static-${{ steps.ish-build-toolchain.outputs.hash }}-${{ hashFiles('apps/flutter/app/ios/Runner.xcodeproj/project.pbxproj', 'tools/ios-runtime/ish/build_ish_ios.sh', 'tools/ios-runtime/ish/fetch_sources.py', 'tools/ios-runtime/ish/patches/**') }}
 
+      - name: Cache iSH source archives
+        if: steps.ish-build-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: tools/ios-runtime/ish/downloads
+          key: ish-src-archives-v1-7864dd601e615d0fc09b888a93d327f458b25a1d
+
+      - name: Pre-download iSH sources (429 resilient - mirrors plus retry)
+        if: steps.ish-build-cache.outputs.cache-hit != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          D=tools/ios-runtime/ish/downloads
+          mkdir -p "$D"
+          fetch() {
+            repo="$1"; sha="$2"; out="$D/$3"; expect="$4"
+            if [ -f "$out" ]; then
+              if [ "$(shasum -a 256 "$out" | awk '{print $1}')" = "$expect" ]; then
+                echo "cached ok: $3"
+                return 0
+              fi
+              echo "bad cache, re-download: $3"
+              rm -f "$out"
+            fi
+            urls="
+          https://ghfast.top/https://github.com/$repo/archive/$sha.zip
+          https://gh-proxy.com/https://github.com/$repo/archive/$sha.zip
+          https://ghproxy.net/https://github.com/$repo/archive/$sha.zip
+          https://codeload.github.com/$repo/zip/$sha
+          https://github.com/$repo/archive/$sha.zip
+          "
+            for u in $urls; do
+              case "$u" in
+                *ghfast.top*|*gh-proxy.com*|*ghproxy.net*) AUTH="" ;;
+                *) AUTH="Authorization: Bearer ${GITHUB_TOKEN:-}" ;;
+              esac
+              for i in 1 2 3; do
+                echo "== fetch $3 via $u (attempt $i)"
+                rm -f "$out.part"
+                if [ -n "$AUTH" ]; then
+                  curl -fL --http1.1 --retry 3 --retry-all-errors --retry-delay 5 \
+                    --connect-timeout 20 --max-time 900 -A operit-ci \
+                    -H "$AUTH" -o "$out.part" "$u" && rc=0 || rc=1
+                else
+                  curl -fL --http1.1 --retry 3 --retry-all-errors --retry-delay 5 \
+                    --connect-timeout 20 --max-time 900 -A operit-ci \
+                    -o "$out.part" "$u" && rc=0 || rc=1
+                fi
+                if [ "$rc" -eq 0 ] && [ -f "$out.part" ]; then
+                  if [ "$(shasum -a 256 "$out.part" | awk '{print $1}')" = "$expect" ]; then
+                    mv "$out.part" "$out"
+                    echo "OK: $3"
+                    return 0
+                  fi
+                  echo "-- sha256 mismatch from $u"
+                fi
+                sleep $((i * 10))
+              done
+            done
+            echo "FATAL: cannot fetch $3 from any source"
+            return 1
+          }
+          fetch ish-app/ish 7864dd601e615d0fc09b888a93d327f458b25a1d ish-7864dd601e615d0fc09b888a93d327f458b25a1d.zip d6c76b0ea4e7a45e75bf9f81005db71b9ed4d5c5dc166feeeda9e9e916df6bce
+          fetch ish-app/libapps b8cacae35e5b11d64bb736a053921c16ca7faf9e libapps-b8cacae35e5b11d64bb736a053921c16ca7faf9e.zip 138b9dc168d7fbde8cabcf480263b18a63514a31ba9195c5cf3be0ded554e828
+          fetch libarchive/libarchive fc6563f5130d8a7ee1fc27c0e55baef35119f26c libarchive-fc6563f5130d8a7ee1fc27c0e55baef35119f26c.zip 2506adf04dbdf3c3c8940435059bb437af55f4239b4016fbee15babf50d2d17c
+          fetch ish-app/linux 8ec9bf17f89c6dba818f3ed2427de4223e78644a linux-8ec9bf17f89c6dba818f3ed2427de4223e78644a.zip eebe45e28b3ecc6894a94cf47eb8ea1ebe27c4caa0441f0c8ed1c06bc2eee49c
+          ls -l "$D"
+
       - name: Check build environment
         run: python3 tools/build_scripts/check_build_environment.py --products app --include-ios --github-runner
 
