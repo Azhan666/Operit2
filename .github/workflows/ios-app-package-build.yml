@@ -66,15 +66,17 @@ jobs:
         run: |
           set -x
           df -h /
-          sudo rm -rf /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform || true
+          # NOTE: do NOT delete iPhoneSimulator.platform — ibtool needs it to
+          # compile LaunchScreen.storyboard for device builds.
           sudo rm -rf /Applications/Xcode.app/Contents/Developer/Platforms/WatchSimulator.platform || true
           sudo rm -rf /Applications/Xcode.app/Contents/Developer/Platforms/AppleTVSimulator.platform || true
+          sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes/* || true
           sudo rm -rf ~/Library/Developer/CoreSimulator/Caches/* || true
           sudo rm -rf /usr/local/share/dotnet || true
           sudo rm -rf /Users/runner/hostedtoolcache/CodeQL || true
           sudo rm -rf /Users/runner/Library/Android || true
           df -h /
-
+          
       - name: Download iSH Alpine rootfs
         uses: actions/download-artifact@v4
         with:
@@ -505,7 +507,7 @@ jobs:
           ls "$V8DIR/third_party/rust/chromium_crates_io/vendor" 2>/dev/null | wc -l
 
           echo '=== attempt 1 ==='
-          cargo build --release --target aarch64-apple-ios 2>&1 | tee /tmp/v8-build.log | tail -n 200
+          cargo build --release --target aarch64-apple-ios 2>&1 | tee /tmp/v8-build.log
           rc=${PIPESTATUS[0]}
           echo "=== attempt1 rc=$rc ==="
 
