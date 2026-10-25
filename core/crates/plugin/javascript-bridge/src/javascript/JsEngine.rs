@@ -292,6 +292,14 @@ impl JsEngineWorker {
         executionHost: Option<Arc<dyn JsExecutionHost>>,
         toolPkgContext: Option<ToolPkgExecutionContext>,
     ) -> JsExecutionResult<Self> {
+        // iOS: the linked V8 is compiled with the V8 sandbox, whose cage cannot be
+        // reserved inside an iOS process, so V8::Initialize() aborts with SIGTRAP.
+        // Fail the runtime instead of letting the process trap.
+        #[cfg(target_os = "ios")]
+        return Err(JsExecutionError::initialization(
+            "JavaScript runtime unavailable on iOS in this build".to_string(),
+        ));
+
         let executionHost = match (&executionHost, &toolPkgContext) {
             (Some(host), Some(context)) => {
                 context.validate().map_err(JsExecutionError::invalid_request)?;
