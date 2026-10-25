@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-operit-runtime = { path = "../../runtime/application" }
+operit-runtime = { path = "../../runtime/application", default-features = false }
 operit-providers = { path = "../../provider/services" }
 operit-store = { path = "../../persistence/store" }
 operit-host-api = { path = "../../foundation/host-api" }
