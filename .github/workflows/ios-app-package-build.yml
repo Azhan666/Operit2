@@ -373,10 +373,11 @@ jobs:
           sed -i '' 's#pnpm run build:web#node web/scripts/build.mjs#' plugins/packages/buildin/workflow/package.json
           grep -n 'pack:toolpkg' plugins/packages/buildin/workflow/package.json || true
 
-      - name: Build V8 from source for iOS (cppgc caged heap disabled)
+      - name: Build V8 from source for iOS (no caged heap, no temporal)
         env:
           V8_FROM_SOURCE: "1"
-          GN_ARGS: "cppgc_enable_caged_heap=false cppgc_enable_young_generation=false v8_enable_i18n_support=false"
+          GN_ARGS: "cppgc_enable_caged_heap=false cppgc_enable_young_generation=false v8_enable_temporal_support=false"
+          EXTRA_GN_ARGS: "cppgc_enable_caged_heap=false cppgc_enable_young_generation=false v8_enable_temporal_support=false"
         run: |
           set -x
           set +e
@@ -384,13 +385,29 @@ jobs:
           CRATE_DIR=hosts/common/operit-host-native-scheduler
           cd "$CRATE_DIR"
 
-          # ---- stage 0: pull crate sources so we can inspect V8 checkout paths ----
           cargo fetch --target aarch64-apple-ios || true
           V8DIR=$(ls -d "$HOME"/.cargo/registry/src/*/v8-*/ 2>/dev/null | head -1)
           echo "V8DIR=$V8DIR"
-          echo '--- third_party top level ---'
-          ls "$V8DIR/third_party" 2>/dev/null | head -40
-          echo '--- rust vendor crates count ---'
+          ICU="$V8DIR/third_party/icu"
+          echo '--- icu data bundles shipped inside the crate ---'
+          ls -l "$ICU"/*/icudtl.dat 2>/dev/null
+
+          # The crate has no third_party/icu/ios/icudtl.dat (that file normally
+          # comes from a gclient/CIPD checkout). Seed it from a data bundle that
+          # IS shipped with the crate; V8 only needs a valid ICU data blob here.
+          if [ -d "$ICU" ] && [ ! -f "$ICU/ios/icudtl.dat" ]; then
+            mkdir -p "$ICU/ios"
+            for cand in "$ICU/chromecast_video/icudtl.dat" "$ICU/flutter_desktop/icudtl.dat"; do
+              if [ -f "$cand" ]; then
+                cp -f "$cand" "$ICU/ios/icudtl.dat"
+                echo "seeded ios/icudtl.dat from $cand"
+                break
+              fi
+            done
+          fi
+          ls -l "$ICU/ios" 2>/dev/null
+
+          echo '--- rust vendor crates (must stay unused: temporal is off) ---'
           ls "$V8DIR/third_party/rust/chromium_crates_io/vendor" 2>/dev/null | wc -l
 
           echo '=== attempt 1 ==='
@@ -398,50 +415,12 @@ jobs:
           rc=${PIPESTATUS[0]}
           echo "=== attempt1 rc=$rc ==="
 
+          echo '--- args.gn actually used by gn ---'
+          find "$HOME/.cargo/registry/src" "$CRATE_DIR/target" -name args.gn 2>/dev/null | head -3 | while read -r a; do echo "== $a"; cat "$a"; done
+
           if [ "$rc" -ne 0 ]; then
-            echo '===== DIAGNOSTICS ====='
-            echo '--- gn args.gn ---'
-            find "$HOME/.cargo/registry/src" -maxdepth 6 -name args.gn 2>/dev/null | head -5 | while read -r a; do echo "== $a"; cat "$a"; done
-            echo '--- missing-file summary from log ---'
-            grep -nE "missing and no known rule|ninja: error|FAILED:|error:" /tmp/v8-build.log | tail -n 40
-            echo '--- third_party/icu ---'
-            ls -la "$V8DIR/third_party/icu" 2>/dev/null | head -20
-            echo '--- third_party/rust ---'
-            ls -la "$V8DIR/third_party/rust" 2>/dev/null | head -20
-            echo '--- depot_tools location ---'
-            DT=$(dirname "$(find "$HOME" -maxdepth 8 -name gclient -type f -perm -u+x 2>/dev/null | head -1)")
-            echo "DT=$DT"
-
-            # ---- repair A: re-run a full gclient sync (CIPD/vendor files are the usual gap) ----
-            if [ -n "$DT" ] && [ -x "$DT/gclient" ]; then
-              echo '--- repair A: gclient sync -D --force --reset ---'
-              ( cd "$V8DIR" && PATH="$DT:$PATH" timeout 2400 gclient sync -D --force --reset --nohooks -j 4 ) 2>&1 | tail -n 60
-              echo "gclient rc=$?"
-            else
-              echo 'gclient not found, skip repair A'
-            fi
-
-            # ---- repair B: ICU data file (iOS variant) ----
-            ICU="$V8DIR/third_party/icu"
-            if [ -d "$ICU" ] && [ ! -f "$ICU/ios/icudtl.dat" ]; then
-              mkdir -p "$ICU/ios"
-              for cand in "$ICU/common/icudtl.dat" "$ICU/android/icudtl.dat" "$ICU/icudtl.dat"; do
-                if [ -f "$cand" ]; then cp -f "$cand" "$ICU/ios/icudtl.dat"; echo "copied $cand -> ios/icudtl.dat"; break; fi
-              done
-            fi
-            ls -la "$ICU/ios" 2>/dev/null
-
-            echo '=== attempt 2 (after repairs) ==='
-            cargo build --release --target aarch64-apple-ios 2>&1 | tee /tmp/v8-build2.log | tail -n 200
-            rc=${PIPESTATUS[0]}
-            echo "=== attempt2 rc=$rc ==="
-
-            if [ "$rc" -ne 0 ]; then
-              echo '===== attempt2 diagnostics ====='
-              find "$HOME/.cargo/registry/src" -maxdepth 6 -name args.gn 2>/dev/null | head -5 | while read -r a; do echo "== $a"; cat "$a"; done
-              grep -nE "missing and no known rule|ninja: error|FAILED:|error:" /tmp/v8-build2.log | tail -n 40
-              ls "$V8DIR/third_party/rust/chromium_crates_io/vendor" 2>/dev/null | wc -l
-            fi
+            echo '--- failure signature ---'
+            grep -nE "missing and no known rule|ninja: error|FAILED:|error:|panicked" /tmp/v8-build.log | tail -n 30
           fi
 
           df -h /
