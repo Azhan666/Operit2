@@ -130,14 +130,89 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-ish-static-${{ steps.ish-build-toolchain.outputs.hash }}-${{ hashFiles('apps/flutter/app/ios/Runner.xcodeproj/project.pbxproj', 'tools/ios-runtime/ish/build_ish_ios.sh', 'tools/ios-runtime/ish/fetch_sources.py', 'tools/ios-runtime/ish/patches/**') }}
 
       - name: Cache iSH source archives
-        if: steps.ish-build-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: tools/ios-runtime/ish/downloads
           key: ish-src-archives-v1-7864dd601e615d0fc09b888a93d327f458b25a1d
 
+      - name: Patch iSH source fetcher (429 resilient)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPERIT_GH_MIRRORS: "https://ghfast.top,https://gh-proxy.com,https://ghproxy.net,https://gh.llkk.cc"
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import sys
+
+          p = pathlib.Path("tools/ios-runtime/ish/fetch_sources.py")
+          if "_operit_download_resilient" in p.read_text():
+              print("already patched")
+              sys.exit(0)
+          lines = p.read_text().split("\n")
+          out = []
+          hit = False
+          i = 0
+          while i < len(lines):
+              ln = lines[i]
+              if "urllib.request.urlopen(url, timeout=120)" in ln:
+                  indent = ln[: len(ln) - len(ln.lstrip())]
+                  out.append(indent + "_operit_download_resilient(url, temporary_path)")
+                  hit = True
+                  i += 1
+                  while i < len(lines) and (lines[i].strip() == "" or lines[i].startswith(indent + " ")):
+                      i += 1
+                  continue
+              out.append(ln)
+              i += 1
+
+          if not hit:
+              print("FATAL: urlopen block not found")
+              sys.exit(1)
+          s = "\n".join(out)
+          helper = '''
+
+
+          def _operit_download_resilient(url, output_path):
+              """OPERIT PATCH: token + mirror + retry to survive GitHub HTTP 429."""
+              import os
+              import time
+              token = os.environ.get("GITHUB_TOKEN", "")
+              mirrors = [m.strip() for m in os.environ.get("OPERIT_GH_MIRRORS", "").split(",") if m.strip()]
+              candidates = [m.rstrip("/") + "/" + url for m in mirrors]
+              candidates.append(url)
+              last = None
+              for cand in candidates:
+                  for attempt in range(1, 4):
+                      try:
+                          headers = {"User-Agent": "operit-ci"}
+                          host = cand.split("/")[2]
+                          if token and host.endswith("github.com"):
+                              headers["Authorization"] = "Bearer " + token
+                          req = urllib.request.Request(cand, headers=headers)
+                          with urllib.request.urlopen(req, timeout=180) as response:
+                              with output_path.open("wb") as output:
+                                  shutil.copyfileobj(response, output, length=1024 * 1024)
+                          print("[download] ok via " + cand, flush=True)
+                          return
+                      except Exception as exc:
+                          last = exc
+                          print("[download] fail %s attempt %d: %s" % (cand, attempt, exc), flush=True)
+                          time.sleep(attempt * 10)
+              raise last
+          '''
+
+          marker = 'if __name__ == "__main__":'
+          if marker in s:
+              s = s.replace(marker, helper + "\n" + marker, 1)
+          else:
+              s = s + "\n" + helper
+          p.write_text(s)
+          print("patched ok")
+          PY
+          python3 -m py_compile tools/ios-runtime/ish/fetch_sources.py && echo PATCH_SYNTAX_OK
+          grep -n "_operit_download_resilient" tools/ios-runtime/ish/fetch_sources.py
+
       - name: Pre-download iSH sources (429 resilient - mirrors plus retry)
-        if: steps.ish-build-cache.outputs.cache-hit != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
